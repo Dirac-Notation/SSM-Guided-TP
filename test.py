@@ -18,13 +18,13 @@ def args_budget(value):
     except:
         return None
 
-parser = argparse.ArgumentParser(description="EAGLE 모델 성능 측정정")
+parser = argparse.ArgumentParser(description="EAGLE 모델 성능 측정")
 parser.add_argument("--ltm_path", type=str, help="LTM 모델", default="meta-llama/Llama-2-7b-chat-hf")
 parser.add_argument("--ssm_path", type=str, help="SSM 모델", default="yuhuili/EAGLE-llama2-chat-7B") # trained_model/two_layer / trained_model/no_feature
 parser.add_argument("--dataset", type=str, help="데이터셋", default="fewshot_data/cnn_dailymail-3shot.jsonl")
 parser.add_argument("--method", type=str, help="토큰 가지치기 기법", default="full")
 parser.add_argument("--token_budget", type=args_budget, nargs="+", help="토큰 버짓", default=[None])
-parser.add_argument("--gpu", type=int, help="사용할 GPU 넘버", default=1)
+parser.add_argument("--gpu", type=int, help="사용할 GPU 넘버", default=0)
 
 args = parser.parse_args()
 
@@ -97,6 +97,7 @@ for token_budget in token_budgets:
     total_rougeL = 0
 
     dataset_name = dataset.replace("data/", "").replace(".jsonl", "")
+    os.makedirs("output_text", exist_ok=True)
     with open(f"output_text/{token_budget if token_budget is not None else 'Full'}.jsonl", "w") as file:
         for input_ids, num_ids, answer, num_answer in tqdm(zip(prompts, num_prompts, answers, num_answers), total=len(prompts), desc="Running Test"):
             
