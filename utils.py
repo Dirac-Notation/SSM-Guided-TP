@@ -52,7 +52,7 @@ def diff(
     
     set_1 = set(vec_1.topk(k).indices.tolist())
     set_2 = set(vec_2.topk(k).indices.tolist())
-    set_3 = set(vec_3.topk(50).indices.tolist())
+    set_3 = set(vec_3.topk(25).indices.tolist())
     
     union_all = set_1&set_2&set_3
     union_12 = set_1&set_2 - union_all
@@ -65,17 +65,17 @@ def diff(
     num_union_23 = len(union_23)
 
     try:
-        score_union_all = vec_1[torch.tensor(list(union_all))].sum()
+        score_union_all = vec_1[torch.tensor(list(union_all))].sum().item()
     except:
         score_union_all = 0
 
     try:
-        score_union_12 = vec_1[torch.tensor(list(union_12))].sum()
+        score_union_12 = vec_1[torch.tensor(list(union_12))].sum().item()
     except:
         score_union_12 = 0
 
     try:
-        score_union_13 = vec_1[torch.tensor(list(union_13))].sum()
+        score_union_13 = vec_1[torch.tensor(list(union_13))].sum().item()
     except:
         score_union_13 = 0
     

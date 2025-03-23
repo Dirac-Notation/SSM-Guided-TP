@@ -51,22 +51,16 @@ for prompt in tqdm(prompts):
     for layer in range(32):
         for head in range(32):
             for i in range(1,iteration+1):
-                union_12, union_13, union_23, union_all, score_union_12, score_union_13, score_union_all, all_score = diff(
+                # union_12, union_13, union_23, union_all, score_union_12, score_union_13, score_union_all, all_score
+                tmp_result = diff(
                     attentions_ltm[layer,head,-i,1:],
                     attentions_ltm[layer,head,:-i,1:].sum(dim=-2),
                     attentions_ssm[:,:,-i].sum(dim=(0,1)),
                     100
                 )
-                results[f"{layer}_{head}"][0] += union_12/iteration
-                results[f"{layer}_{head}"][1] += union_13/iteration
-                results[f"{layer}_{head}"][2] += union_23/iteration
-                results[f"{layer}_{head}"][3] += union_all/iteration
                 
-                results[f"{layer}_{head}"][4] += score_union_12/iteration
-                results[f"{layer}_{head}"][5] += score_union_13/iteration
-                results[f"{layer}_{head}"][6] += score_union_all/iteration
-                
-                results[f"{layer}_{head}"][7] += all_score/iteration
+                for idx, tmp in enumerate(tmp_result):
+                    results[f"{layer}_{head}"][idx] += tmp/iteration
 
 value_12 = 0
 value_13 = 0
