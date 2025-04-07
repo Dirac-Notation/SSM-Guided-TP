@@ -235,7 +235,9 @@ class EaModel(nn.Module):
             current_length_data.zero_()
             for past_key_value in past_key_values:
                 past_key_value[0].select_indices = None
+                past_key_value[0].ssm_indices = None
                 past_key_value[1].select_indices = None
+                past_key_value[1].ssm_indices = None
         else:
             (
                 past_key_values,
@@ -256,7 +258,7 @@ class EaModel(nn.Module):
         reset_tree_mode(self)
         
         with Timer("Tree_Initial", printing=False) as timer_init:
-            draft_tokens, retrieve_indices, tree_mask, tree_position_ids, logits, hidden_state, selected_tokens = initialize_tree(
+            draft_tokens, retrieve_indices, tree_mask, tree_position_ids, logits, hidden_state, ssm_indices = initialize_tree(
                 input_ids, self, past_key_values, logits_processor
             )
             
@@ -269,19 +271,15 @@ class EaModel(nn.Module):
         ssm_latency = []
 
         with Timer("all") as timer_decoding:
-            for past_key_value in past_key_values:
-                past_key_value[0].h2o_after_verifying()
-                past_key_value[1].h2o_after_verifying()
-
-            mask = torch.zeros((1, input_ids.size(-1)))
-            mask.scatter_(1, selected_tokens.unsqueeze(0)[:,:-59].to("cpu"), 1)
+            # mask = torch.zeros((1, input_ids.size(-1)))
+            # mask.scatter_(1, selected_tokens.unsqueeze(0)[:,:-59].to("cpu"), 1)
             # mask.scatter_(1, past_key_values[0][0].select_indices[:,0,:-59].to("cpu"), 1)
 
             for idx in range(max_length):
-                if selected_tokens is not None:
+                if ssm_indices is not None:
                     for past_key_value in past_key_values:
-                        past_key_value[0].select_indices = selected_tokens
-                        past_key_value[1].select_indices = selected_tokens
+                        past_key_value[0].ssm_indices = ssm_indices
+                        past_key_value[1].ssm_indices = ssm_indices
                 
                 self.base_model.model.tree_mask = tree_mask
 
@@ -320,10 +318,10 @@ class EaModel(nn.Module):
                         sample_p
                     )
                 
-                tmp = torch.zeros((1, input_ids.size(-1)))
-                tmp.scatter_(1, selected_tokens.unsqueeze(0)[:,:-59].to("cpu"), 1)
-                # tmp.scatter_(1, past_key_values[0][0].select_indices[:,0,:-59].to("cpu"), 1)
-                mask = torch.cat((F.pad(mask, (0, tmp.size(-1) - mask.size(-1))), tmp), dim=0)
+                # tmp = torch.zeros((1, input_ids.size(-1)))
+                # tmp.scatter_(1, selected_tokens.unsqueeze(0)[:,:-59].to("cpu"), 1)
+                # # tmp.scatter_(1, past_key_values[0][0].select_indices[:,0,:-59].to("cpu"), 1)
+                # mask = torch.cat((F.pad(mask, (0, tmp.size(-1) - mask.size(-1))), tmp), dim=0)
                 
                 count_accept += accept_length
                 count_all += self.ea_layer.depth + 1
@@ -339,12 +337,12 @@ class EaModel(nn.Module):
                     break
                 
                 if new_token > max_new_tokens:
-                    import matplotlib.pyplot as plt
-                    plt.imshow(mask, cmap="Blues", interpolation="nearest")
-                    plt.xticks()
-                    plt.yticks()
-                    plt.savefig("tmp.png")
-                    import pdb; pdb.set_trace()
+                    # import matplotlib.pyplot as plt
+                    # plt.imshow(mask, cmap="Blues", interpolation="nearest")
+                    # plt.xticks()
+                    # plt.yticks()
+                    # plt.savefig("tmp.png")
+                    # import pdb; pdb.set_trace()
                     break
                 if input_ids.shape[1] > max_length:
                     break

@@ -78,5 +78,5 @@ def diff(
         score_union_13 = vec_1[torch.tensor(list(union_13))].sum().item()
     except:
         score_union_13 = 0
-    
-    return num_union_12, num_union_13, num_union_23, num_union_all, score_union_12, score_union_13, score_union_all, vec_1[torch.tensor(list(set_1))].sum()
+
+    return num_union_12, num_union_13, num_union_23, num_union_all, score_union_12, score_union_13, score_union_all, vec_1[torch.tensor(list(set_1))].sum().item()

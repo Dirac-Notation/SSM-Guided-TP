@@ -6,27 +6,20 @@ import argparse
 import matplotlib.pyplot as plt
 
 from tqdm import tqdm
-from transformers import AutoTokenizer
-
-from eagle.model.ea_model import EaModel
-from eagle.model.kv_cache import initialize_past_key_values
+from transformers import AutoTokenizer, AutoModelForCausalLM
 
 from utils import sim, load_datasets, diff
 
-# base_model_path = "meta-llama/Llama-2-7b-chat-hf"
-# EAGLE_model_path = "yuhuili/EAGLE-llama2-chat-7B"
-base_model_path = "lmsys/vicuna-7b-v1.5"
-EAGLE_model_path = "yuhuili/EAGLE-Vicuna-7B-v1.3"
+ltm_model_path = "facebook/opt-6.7b"
+ssm_model_path = "facebook/opt-125m"
 dataset = "fewshot_data/cnn_dailymail-0shot.jsonl" # fewshot_data/multi_news-0shot.jsonl fewshot_data/cnn_dailymail-0shot.jsonl
 
-model = EaModel.from_pretrained(
-    base_model_path=base_model_path,
-    ea_model_path=EAGLE_model_path,
-    torch_dtype=torch.float16,
-    device_map=f"cuda:3",
-).eval()
+device = torch.device("cuda:3")
+tokenizer = AutoTokenizer.from_pretrained(ltm_model_path)
+model_ltm = AutoModelForCausalLM.from_pretrained(ltm_model_path, torch_dtype=torch.float16).to(device=device).eval()
+model_ssm = AutoModelForCausalLM.from_pretrained(ssm_model_path, torch_dtype=torch.float16).to(device=device).eval()
 
-prompts, answers = load_datasets(dataset, model.tokenizer)
+prompts, answers = load_datasets(dataset, tokenizer)
 
 results = {}
 for layer in range(32):
@@ -34,19 +27,16 @@ for layer in range(32):
         results[f"{layer}_{head}"] = [0, 0, 0, 0, 0, 0, 0, 0]
 
 for prompt in tqdm(prompts):
-    input_ids = prompt.to(model.base_model.device)
-
-    past_key_values, past_key_values_data, current_length_data = initialize_past_key_values(model.base_model)
+    input_ids = prompt.to(device)
 
     with torch.inference_mode():
-        outputs_ltm = model.base_model.model(input_ids, past_key_values=past_key_values, output_attentions=True)
+        outputs_ltm = model_ltm(input_ids, output_attentions=True)
 
-        last_hidden_states = outputs_ltm.last_hidden_state[:,:-1,:]
         attentions_ltm = torch.stack([tensor.cpu() for tensor in outputs_ltm.attentions]).squeeze(1)
 
-        outputs_ssm = model.ea_layer(last_hidden_states, input_ids[:,1:], output_attentions=True)
+        outputs_ssm = model_ssm(input_ids, output_attentions=True)
         
-        attentions_ssm = torch.stack([tensor.cpu() for tensor in outputs_ssm[1]]).squeeze(1)
+        attentions_ssm = torch.stack([tensor.cpu() for tensor in outputs_ssm.attentions]).squeeze(1)
 
     iteration = 10
     for layer in range(32):

@@ -823,15 +823,11 @@ class Model(nn.Module):
         selected_tokens = None
 
         if self.method != "full":
-            if self.method == "ssm-guided":
+            if self.method == "ssm-guided" or self.method == "h2o":
                 # SSM-Guided Token Pruning
+                budget = self.token_budget//2
                 total_len = attentions.size(-1) - 51
-                selected_tokens = attentions[:,:,-50:,:total_len-50].mean(dim=(0,1,2)).topk(self.token_budget-1-50).indices.sort().values
-                selected_tokens = torch.cat([
-                    torch.zeros(1, device=selected_tokens.device, dtype=selected_tokens.dtype),
-                    selected_tokens+1,
-                    torch.arange(total_len-50, total_len+60, device=selected_tokens.device)
-                ])
+                selected_tokens = attentions[:,:,-50:,:total_len-budget].mean(dim=(0,1,2)).topk(20).indices.sort().values + 1
 
             elif self.method == "streamingllm":
                 # StreamingLLM 

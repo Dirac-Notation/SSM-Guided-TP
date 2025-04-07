@@ -32,13 +32,17 @@ class KVCache:
         self.data = data
         self.current_length = current_length
         
-        self.method = "full" # full / no_offloading / just_offloading / maintain_offloading / h2o
+        self.method = None # full / no_offloading / just_offloading / maintain_offloading / h2o
         self.token_budget = None
         
         self.select_indices = None
         self.saved_indices = None
         self.loaded_data = None
-        self.attention_score = None
+        self.acculmulated_score = None
+        
+        self.ssm_indices = None
+        
+        self.forgetting_factor = 0.0
 
     @property
     def shape(self):
@@ -46,7 +50,7 @@ class KVCache:
         return (
             self.data.shape[0],
             self.data.shape[1],
-            self.current_length.item(),
+            self.current_length,
             self.data.shape[3],
         )
 
@@ -75,89 +79,76 @@ class KVCache:
         Returns:
             torch.Tensor: The data tensor after concatenation up to the current length.
         """
-        
+        if self.ssm_indices is not None:
+            self.select_indices = torch.cat((
+                self.ssm_indices.view(1,1,-1).repeat(*self.select_indices.shape[:2],1),
+                self.select_indices
+            ), dim=2)
+            self.acculmulated_score = torch.cat((
+                torch.zeros((*self.select_indices.shape[:2], *self.ssm_indices.shape), dtype=self.acculmulated_score.dtype, device=self.acculmulated_score.device),
+                self.acculmulated_score
+            ), dim=2)
+            
         if self.select_indices is None or self.method == "full":
-            loaded_data = torch.narrow(self.data, 2, 0, self.current_length).to(tensor.device)
-            loaded_data = torch.cat([loaded_data, tensor], dim=-2)
-            
+            loaded_data = self.data.narrow(dim, 0, self.current_length).to(tensor.device)
+        elif self.method in ("streamingllm", "ssm-guided"):
+            loaded_data = self.data.index_select(dim, self.select_indices[:-59])
+        elif self.method == "h2o":
+            loaded_data = self.data.gather(dim, self.select_indices.unsqueeze(-1).expand(-1, -1, -1, self.data.size(-1)))
         else:
-            if self.method == "streamingllm" or self.method == "ssm-guided":
-                loaded_data = self.data.index_select(dim, self.select_indices[:-59])
-                loaded_data = torch.cat([loaded_data, tensor], dim=-2)
-            
-            elif self.method == "just_offloading":
-                loaded_data = self.data.index_select(dim, self.select_indices[:-59].to("cpu")).to(tensor.device)
-                loaded_data = torch.cat([loaded_data, tensor], dim=-2)
-            
-            elif self.method == "maintain_offloading":
-                select_indices = self.select_indices[:-59]
-                
-                if self.saved_indices is None:
-                    loaded_data = self.data.index_select(dim, select_indices.to("cpu")).to(tensor.device)
-                    self.loaded_data = torch.cat([loaded_data, tensor], dim=-2)
-                
-                    self.saved_indices = self.select_indices
-                else:
-                    saved_indices = self.saved_indices[:-59]
-                    alredy_loaded_tokens = custom_isin1d(saved_indices, select_indices)
-                    need_load_tokens = ~custom_isin1d(select_indices, saved_indices)
+            loaded_data = self.data.narrow(dim, 0, self.current_length).to(tensor.device)
 
-                    alredy_loaded_indices = saved_indices[alredy_loaded_tokens]
-                    need_load_indices = select_indices[need_load_tokens]
-                    
-                    loaded_data = self.data.index_select(dim, need_load_indices.to("cpu")).to(tensor.device)
-                    
-                    self.loaded_data = torch.cat([
-                        self.loaded_data[:,:,:-59,:][:,:,alredy_loaded_tokens,:],
-                        loaded_data,
-                        tensor
-                    ], dim=dim)
-                    
-                    self.saved_indices = torch.cat([
-                        alredy_loaded_indices,
-                        need_load_indices,
-                        self.select_indices[-59:]
-                    ])
-
-            elif self.method == "h2o":
-                loaded_data = self.data.gather(dim, self.select_indices[:,:,:-59].unsqueeze(-1).expand(-1,-1,-1,self.data.size(-1)))
-                loaded_data = torch.cat([loaded_data, tensor], dim=-2)
-                
-        dst = self.data.narrow(dim, self.current_length, tensor.shape[dim])
+        dst = self.data.narrow(dim, self.current_length, tensor.size(dim))
         dst.copy_(tensor)
-        self.current_length.add_(tensor.shape[dim])
+        self.current_length.add_(tensor.size(dim))
         
-        return self.loaded_data if self.loaded_data is not None else loaded_data
+        return self.loaded_data if self.loaded_data is not None else torch.cat([loaded_data, tensor], dim=dim)
     
-    def h2o_after_verifying(self, verified_indices: torch.Tensor = None):
+    def h2o_update(self, attention_score: torch.Tensor):
         if self.method != "h2o":
             return
-        
-        recent_budget = int(self.token_budget/2)
-        hh_budget = recent_budget
-        
-        if verified_indices is None:
-            self.acculmulated_score = self.attention_score.sum(dim=-2)
-            select_indices = self.acculmulated_score[:,:,:-recent_budget].topk(hh_budget).indices.sort().values
-            self.select_indices = torch.cat([select_indices, torch.arange(self.current_length-recent_budget, self.current_length+59, device=select_indices.device).view(1,1,-1).expand(-1,32,-1)], dim=-1)
+
+        if self.select_indices is None:
+            recent_budget = self.token_budget // 2
+            hh_budget = recent_budget
+            acc_score = ((self.forgetting_factor**torch.arange(0, attention_score.size(2), dtype=attention_score.dtype, device=attention_score.device).flip(dims=[0]).view(1,1,-1,1))*attention_score).sum(dim=-2)
+            select_idx = acc_score[:, :, :-recent_budget].topk(hh_budget).indices.sort().values
+            extra_idx = torch.arange(
+                self.current_length - recent_budget,
+                self.current_length,
+                device=select_idx.device
+            ).view(1, 1, -1).expand_as(select_idx)
+            self.select_indices = torch.cat((select_idx, extra_idx), dim=-1)
+            self.acculmulated_score = acc_score.gather(dim=2, index=self.select_indices)
         else:
-            num_new_tokens = verified_indices.numel()
-            token_len = self.current_length - 59 + num_new_tokens
-            verified_idx = verified_indices - token_len + 1
-            
-            # 스코어 최신화
-            acculmulated_score = self.attention_score[:,:,verified_idx,:].sum(dim=-2)
-            new_score = torch.zeros(
-                (self.acculmulated_score.size(0), self.acculmulated_score.size(1), token_len),
-                device=self.acculmulated_score.device,
-                dtype=self.acculmulated_score.dtype
-            ).scatter(-1, self.select_indices[:,:,:-59+num_new_tokens], acculmulated_score)
-            new_score[:,:,:self.acculmulated_score.size(-1)] += self.acculmulated_score
-            self.acculmulated_score = new_score
-            
-            # 인덱스 최신화화
-            select_indices = self.acculmulated_score[:,:,:-recent_budget].topk(hh_budget).indices.sort().values
-            self.select_indices = torch.cat([select_indices, torch.arange(token_len-recent_budget, token_len+59, device=select_indices.device).view(1,1,-1).expand(-1,32,-1)], dim=-1)
+            self.attention_score = attention_score
+
+    def h2o_after_verifying(self, select_indices: torch.Tensor):
+        if self.method != "h2o":
+            return
+
+        num_new = select_indices.numel()
+        recent_budget = self.token_budget // 2
+        zero_idx = select_indices - select_indices.min()
+        all_part = self.attention_score[:, :, zero_idx, :]
+        cache_part = all_part[:, :, :, :self.acculmulated_score.size(2)]
+        select_part = all_part[:, :, :, self.acculmulated_score.size(2):][:, :, :, zero_idx]
+        self.attention_score = torch.cat((cache_part, select_part), dim=3)
+        acc_score = self.attention_score.sum(dim=2)
+        acc_score[:, :, :self.acculmulated_score.size(2)] += self.forgetting_factor*self.acculmulated_score
+        self.acculmulated_score = acc_score
+        
+        new_select = self.acculmulated_score[:, :, :-recent_budget].topk(recent_budget, dim=2).indices.sort().values
+        extra_idx = torch.arange(
+            self.current_length - 59 - recent_budget + num_new,
+            self.current_length - 59 + num_new,
+            device=self.select_indices.device
+        ).view(1, 1, -1).expand_as(new_select)
+        self.select_indices = torch.cat((self.select_indices.gather(dim=2, index=new_select), extra_idx), dim=2)
+        self.acculmulated_score = torch.cat((
+            self.acculmulated_score.gather(dim=2, index=new_select),
+            self.acculmulated_score[:, :, -recent_budget:]
+        ), dim=2)
             
 
 def initialize_past_key_values(model):

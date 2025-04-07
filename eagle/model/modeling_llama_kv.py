@@ -616,7 +616,7 @@ class LlamaAttention(nn.Module):
                     )
                 attn_weights = attn_weights + attention_mask
             else:
-                attn_weights = attn_weights + attention_mask[:,:,:,-select_indices.size(-1):]
+                attn_weights = attn_weights + attention_mask[:,:,:,-select_indices.size(-1)-59:]
 
         # upcast attention to fp32
         attn_weights = nn.functional.softmax(
@@ -649,9 +649,9 @@ class LlamaAttention(nn.Module):
         else:
             attn_output = self.o_proj(attn_output)
 
-        if past_key_value[0].method == "h2o":
-            past_key_value[0].attention_score = attn_weights
-            past_key_value[1].attention_score = attn_weights
+        if past_key_value is not None:
+            key_states = past_key_value[0].h2o_update(attn_weights)
+            value_states = past_key_value[1].h2o_update(attn_weights)
 
         if not output_attentions:
             attn_weights = None
