@@ -41,8 +41,7 @@ class KVCache:
         self.acculmulated_score = None
         
         self.ssm_indices = None
-        
-        self.forgetting_factor = 0.0
+        self.forgetting_factor = 1.0
 
     @property
     def shape(self):

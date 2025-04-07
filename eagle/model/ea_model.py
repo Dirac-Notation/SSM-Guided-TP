@@ -71,13 +71,15 @@ class EaModel(nn.Module):
         
         self.set_token_budget(method, token_budget)
 
-    def set_token_budget(self, method, token_budget):
+    def set_token_budget(self, method, token_budget, forgetting_factor=1.0, reviving=False):
         if token_budget is None:
             method = "full"
         self.method = method
         self.ea_layer.method = method
         self.token_budget = token_budget
         self.ea_layer.token_budget = token_budget
+        self.forgetting_factor=forgetting_factor
+        self.ea_layer.revive_budget = token_budget//20 if reviving else 0
     
     def get_tokenizer(self):
         """Get the tokenizer of the base model.
@@ -251,8 +253,10 @@ class EaModel(nn.Module):
         for past_key_value in past_key_values:
             past_key_value[0].method = self.method
             past_key_value[0].token_budget = self.token_budget
+            past_key_value[0].forgetting_factor = self.forgetting_factor
             past_key_value[1].method = self.method
             past_key_value[1].token_budget = self.token_budget
+            past_key_value[1].forgetting_factor = self.forgetting_factor
 
         input_len = input_ids.shape[1]
         reset_tree_mode(self)
@@ -293,13 +297,13 @@ class EaModel(nn.Module):
                         input_ids,
                         retrieve_indices,
                     )
-                #retrieve_indices=tree_buffers["retrieve_indices"]
-                #logits = logits[0, retrieve_indices]
-                draft_tokens=torch.cat((draft_tokens,padding),dim=1)
-                candidates=draft_tokens[0, retrieve_indices]
-                best_candidate, accept_length, sample_p = evaluate_posterior(
-                    logits, candidates, logits_processor
-                )
+                    #retrieve_indices=tree_buffers["retrieve_indices"]
+                    #logits = logits[0, retrieve_indices]
+                    draft_tokens=torch.cat((draft_tokens,padding),dim=1)
+                    candidates=draft_tokens[0, retrieve_indices]
+                    best_candidate, accept_length, sample_p = evaluate_posterior(
+                        logits, candidates, logits_processor
+                    )
                 
                 # print(accept_length)
                 with Timer("update_inference_inputs") as timer_ssm:

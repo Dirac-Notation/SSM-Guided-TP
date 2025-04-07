@@ -516,6 +516,7 @@ class Model(nn.Module):
         
         self.method = "full"
         self.token_budget = None
+        self.revive_budget = None
 
     def init_tree(self):
         self.tree_mask_init = torch.eye(self.top_k, device=self.embed_tokens.weight.device)[None, None]
@@ -827,7 +828,7 @@ class Model(nn.Module):
                 # SSM-Guided Token Pruning
                 budget = self.token_budget//2
                 total_len = attentions.size(-1) - 51
-                selected_tokens = attentions[:,:,-50:,:total_len-budget].mean(dim=(0,1,2)).topk(20).indices.sort().values + 1
+                selected_tokens = attentions[:,:,-50:,:total_len-budget].mean(dim=(0,1,2)).topk(self.revive_budget).indices.sort().values + 1
 
             elif self.method == "streamingllm":
                 # StreamingLLM 

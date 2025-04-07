@@ -24,6 +24,8 @@ parser.add_argument("--ssm_path", type=str, help="SSM 모델", default="yuhuili/
 parser.add_argument("--dataset", type=str, help="데이터셋", default="fewshot_data/cnn_dailymail-3shot.jsonl")
 parser.add_argument("--method", type=str, help="토큰 가지치기 기법", default="full")
 parser.add_argument("--token_budget", type=args_budget, nargs="+", help="토큰 버짓", default=[None])
+parser.add_argument("--forgetting_factor", type=float, help="Forgetting Factor", default=1.0)
+parser.add_argument("--reviving", type=bool, help="되살리기 메커니즘 버짓의 5%", default=False)
 parser.add_argument("--gpu", type=int, help="사용할 GPU 넘버", default=0)
 
 args = parser.parse_args()
@@ -33,6 +35,8 @@ EAGLE_model_path = args.ssm_path
 dataset = args.dataset
 method = args.method
 token_budgets = args.token_budget
+forgetting_factor = args.forgetting_factor
+reviving = args.reviving
 gpu = args.gpu
 
 rouge_types = ["rouge1", "rouge2", "rougeL"]
@@ -78,7 +82,7 @@ model = EaModel.from_pretrained(
 ).eval()
 
 for token_budget in token_budgets:
-    model.set_token_budget(method, token_budget)
+    model.set_token_budget(method=method, token_budget=token_budget, forgetting_factor=forgetting_factor, reviving=reviving)
     
     for i in tqdm(range(10), desc="Warm Up"):
         model.eagenerate(prompts[i].to(model.base_model.device), max_new_tokens=512)
@@ -131,6 +135,8 @@ for token_budget in token_budgets:
     
     print(f"method: {method}")
     print(f"token budget: {token_budget if token_budget is not None else 'Full'}")
+    print(f"forgetting factor: {forgetting_factor}")
+    print(f"reviving: {reviving}")
 
     print(f"average init throughput = {1e6*init_time/datalen}")
     print(f"average decode throughput = {1e6*decode_time/datalen}")
