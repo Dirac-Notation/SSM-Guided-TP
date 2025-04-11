@@ -80,6 +80,7 @@ class EaModel(nn.Module):
         self.ea_layer.token_budget = token_budget
         self.forgetting_factor=forgetting_factor
         self.ea_layer.revive_budget = token_budget//5 if reviving else 0
+        self.revive_budget = token_budget//5 if reviving else 0
     
     def get_tokenizer(self):
         """Get the tokenizer of the base model.
@@ -236,8 +237,10 @@ class EaModel(nn.Module):
             for past_key_value in past_key_values:
                 past_key_value[0].select_indices = None
                 past_key_value[0].ssm_indices = None
+                past_key_value[0].prefill = False
                 past_key_value[1].select_indices = None
                 past_key_value[1].ssm_indices = None
+                past_key_value[1].prefill = False
         else:
             (
                 past_key_values,
@@ -251,9 +254,11 @@ class EaModel(nn.Module):
         for past_key_value in past_key_values:
             past_key_value[0].method = self.method
             past_key_value[0].token_budget = self.token_budget
+            past_key_value[0].revive_budget = self.revive_budget
             past_key_value[0].forgetting_factor = self.forgetting_factor
             past_key_value[1].method = self.method
             past_key_value[1].token_budget = self.token_budget
+            past_key_value[1].revive_budget = self.revive_budget
             past_key_value[1].forgetting_factor = self.forgetting_factor
 
         input_len = input_ids.shape[1]

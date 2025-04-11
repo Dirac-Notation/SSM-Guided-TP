@@ -587,11 +587,11 @@ class LlamaAttention(nn.Module):
         )
 
         if past_key_value is not None:
+            prefill = past_key_value[0].prefill
             key_states = past_key_value[0].cat(key_states, dim=2)
             value_states = past_key_value[1].cat(value_states, dim=2)
-            select_indices = past_key_value[0].select_indices
         else:
-            select_indices = None
+            prefill = False
 
         # repeat k/v heads if n_kv_heads < n_heads
         key_states = repeat_kv(key_states, self.num_key_value_groups)
@@ -602,21 +602,22 @@ class LlamaAttention(nn.Module):
         ) / math.sqrt(self.head_dim)
 
         if attn_weights.size() != (bsz, self.num_heads, q_len, kv_seq_len):
-            if select_indices is None:
+            if not prefill:
                 raise ValueError(
                     f"Attention weights should be of size {(bsz, self.num_heads, q_len, kv_seq_len)}, but is"
                     f" {attn_weights.size()}"
                 )
 
         if attention_mask is not None:
-            if select_indices is None:
+            if not prefill:
                 if attention_mask.size() != (bsz, 1, q_len, kv_seq_len):
                     raise ValueError(
                         f"Attention mask should be of size {(bsz, 1, q_len, kv_seq_len)}, but is {attention_mask.size()}"
                     )
                 attn_weights = attn_weights + attention_mask
             else:
-                attn_weights = attn_weights + attention_mask[:,:,:,-select_indices.size(-1)-59:]
+                budget = past_key_value[0].token_budget + past_key_value[0].revive_budget
+                attn_weights = attn_weights + attention_mask[:,:,:,-budget-59:]
 
         # upcast attention to fp32
         attn_weights = nn.functional.softmax(

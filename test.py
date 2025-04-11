@@ -25,7 +25,6 @@ parser.add_argument("--dataset", type=str, help="데이터셋", default="fewshot
 parser.add_argument("--method", type=str, help="토큰 가지치기 기법", default="full")
 parser.add_argument("--token_budget", type=args_budget, nargs="+", help="토큰 버짓", default=[None])
 parser.add_argument("--forgetting_factor", type=float, help="Forgetting Factor", default=1.0)
-parser.add_argument("--reviving", type=bool, help="되살리기 메커니즘 버짓의 5%", default=False)
 parser.add_argument("--gpu", type=int, help="사용할 GPU 넘버", default=0)
 
 args = parser.parse_args()
@@ -36,8 +35,8 @@ dataset = args.dataset
 method = args.method
 token_budgets = args.token_budget
 forgetting_factor = args.forgetting_factor
-reviving = args.reviving
 gpu = args.gpu
+reviving = True if method in ["streamingssm", "h2ossm"] else False
 
 rouge_types = ["rouge1", "rouge2", "rougeL"]
 
@@ -85,7 +84,7 @@ for token_budget in token_budgets:
     model.set_token_budget(method=method, token_budget=token_budget, forgetting_factor=forgetting_factor, reviving=reviving)
     
     for i in tqdm(range(10), desc="Warm Up"):
-        model.eagenerate(prompts[i].to(model.base_model.device), max_new_tokens=512)
+        model.eagenerate(prompts[i].to(model.base_model.device), max_new_tokens=64)
 
     init_time = 0
     decode_time = 0

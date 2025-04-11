@@ -807,22 +807,15 @@ class Model(nn.Module):
 
         selected_tokens = None
 
-        if self.method != "full":
-            if self.method == "ssm-guided" or self.method == "h2o" or self.method == "streamingssm":
-                # SSM-Guided Token Pruning
-                budget = self.token_budget//2
-                total_len = attentions.size(-1) - 51
-                selected_tokens = attentions[:,:,-50:,:total_len-budget].mean(dim=(0,1,2)).topk(self.revive_budget).indices.sort().values + 1
-
-            elif self.method == "streamingllm":
-                # StreamingLLM 
-                sink_budget = 4
-                recent_budget = self.token_budget - sink_budget
-                total_len = attentions.size(-1) - 50
-                selected_tokens = torch.cat([
-                    torch.arange(0, sink_budget, device=attentions.device),
-                    torch.arange(total_len-recent_budget, total_len+59, device = attentions.device)
-                ])
+        if self.method == "h2ossm":
+            # SSM-Guided Token Pruning
+            budget = self.token_budget//2
+            total_len = attentions.size(-1) - 51
+            selected_tokens = attentions[:,:,-50:,:total_len-budget].mean(dim=(0,1,2)).topk(self.revive_budget).indices.sort().values + 1
+        elif self.method == "streamingssm":
+            budget = self.token_budget - 4
+            total_len = attentions.size(-1) - 51
+            selected_tokens = attentions[:,:,-50:,4:total_len-budget].mean(dim=(0,1,2)).topk(self.revive_budget).indices.sort().values + 1
         
         return draft_tokens, retrieve_indices, tree_mask, tree_position_ids, selected_tokens
 

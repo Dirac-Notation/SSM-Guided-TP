@@ -34,6 +34,9 @@ class KVCache:
         
         self.method = None # full / no_offloading / just_offloading / maintain_offloading / h2o
         self.token_budget = None
+        self.revive_budget = None
+        
+        self.prefill = False
         
         self.select_indices = None
         self.saved_indices = None
@@ -78,24 +81,38 @@ class KVCache:
         Returns:
             torch.Tensor: The data tensor after concatenation up to the current length.
         """
-        if self.ssm_indices is not None:
-            self.select_indices = torch.cat((
-                self.ssm_indices.view(1,1,-1).repeat(*self.select_indices.shape[:2],1),
-                self.select_indices
-            ), dim=2)
-            self.acculmulated_score = torch.cat((
-                torch.zeros((*self.select_indices.shape[:2], *self.ssm_indices.shape), dtype=self.acculmulated_score.dtype, device=self.acculmulated_score.device),
-                self.acculmulated_score
-            ), dim=2)
             
-        if self.select_indices is None or self.method == "full":
+        if not self.prefill:
             loaded_data = self.data.narrow(dim, 0, self.current_length).to(tensor.device)
-        elif self.method in ("streamingllm", "ssm-guided"):
-            loaded_data = self.data.index_select(dim, self.select_indices[:-59])
+            if self.method != "full":
+                self.prefill = True
+        elif self.method == "streamingllm":
+            loaded_data = torch.cat((
+                self.data.narrow(dim, 0, 4),
+                self.data.narrow(dim, self.current_length-(self.token_budget-4), self.token_budget-4)
+            ), dim=dim)
+            self.select_indices = 0
+        elif self.method == "streamingssm":
+            loaded_data = torch.cat((
+                self.data.narrow(dim, 0, 4),
+                self.data.index_select(dim, self.ssm_indices),
+                self.data.narrow(dim, self.current_length-(self.token_budget-4), self.token_budget-4)
+            ), dim=dim)
+            self.select_indices = 0
         elif self.method == "h2o":
             loaded_data = self.data.gather(dim, self.select_indices.unsqueeze(-1).expand(-1, -1, -1, self.data.size(-1)))
-        else:
-            loaded_data = self.data.narrow(dim, 0, self.current_length).to(tensor.device)
+        elif self.method == "h2ossm":
+            if self.ssm_indices is not None:
+                self.select_indices = torch.cat((
+                    self.ssm_indices.view(1,1,-1).repeat(*self.select_indices.shape[:2],1),
+                    self.select_indices
+                ), dim=2)
+                self.acculmulated_score = torch.cat((
+                    torch.zeros((*self.select_indices.shape[:2], *self.ssm_indices.shape), dtype=self.acculmulated_score.dtype, device=self.acculmulated_score.device),
+                    self.acculmulated_score
+                ), dim=2)
+            
+            loaded_data = self.data.gather(dim, self.select_indices.unsqueeze(-1).expand(-1, -1, -1, self.data.size(-1)))
 
         dst = self.data.narrow(dim, self.current_length, tensor.size(dim))
         dst.copy_(tensor)
