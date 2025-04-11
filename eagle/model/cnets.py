@@ -502,10 +502,6 @@ class Model(nn.Module):
         self.total_tokens = total_tokens - 1
         self.depth = depth
         self.threshold = math.log(threshold)
-        # print("total_tokens",total_tokens)
-        # print("depth",depth)
-        # print("top_k",top_k)
-        # print("threshold",threshold)
 
         self.layers = nn.ModuleList([LlamaDecoderLayer(config, index) for index in range(config.num_hidden_layers)])
         self.fc = nn.Linear(2 * config.hidden_size, config.hidden_size, bias=bias)
@@ -578,11 +574,6 @@ class Model(nn.Module):
 
         with torch.no_grad():
             inputs_embeds = self.embed_tokens(input_ids)
-            # inputs_embeds = inputs_embeds.detach()
-
-        # if std is not None:
-        #     noise = torch.randn(inputs_embeds.size(),device=inputs_embeds.device) * std
-        #     inputs_embeds=inputs_embeds+noise
 
         if past_key_values is not None:
             past_key_values_length = past_key_values[0][0].shape[2]
@@ -596,7 +587,6 @@ class Model(nn.Module):
         else:
             position_ids = position_ids.view(-1, seq_length).long()
 
-        #position_ids=position_ids//4
         if attention_mask is None:
             attention_mask = torch.ones(
                 (batch_size, seq_length_with_past), dtype=torch.bool, device=hidden_states.device
@@ -605,11 +595,6 @@ class Model(nn.Module):
             attention_mask, (batch_size, seq_length), hidden_states, past_key_values_length
         )
 
-        # if self.gradient_checkpointing and self.training:
-        #    if use_cache:
-        #        use_cache = False
-
-        # hidden_states=self.act(self.fc(torch.cat((inputs_embeds,hidden_states),dim=-1)))
         inputs_embeds = inputs_embeds.to(hidden_states.dtype)
         hidden_states = self.fc(torch.cat((inputs_embeds, hidden_states), dim=-1))
 
@@ -720,15 +705,14 @@ class Model(nn.Module):
         for i in range(depth):
             self.tree_mask = tree_mask
             position_ids = len_posi + self.position_ids
-            # with Timer("draft one"):
+
             out_hidden, tmp_attentions, past_key_values = self(input_hidden, input_ids=input_ids, past_key_values=past_key_values,
                                                 position_ids=position_ids, use_cache=True, output_attentions=True)
             len_posi += 1
 
             tmp_attentions = torch.stack([tensor for tensor in tmp_attentions]).squeeze(1)
             attentions = torch.cat((F.pad(attentions, (0, tmp_attentions.size(-1)-attentions.size(-1))), tmp_attentions), dim=-2)
-            
-            # with Timer("sort1"):
+
             bias1 = top_k if i > 0 else 0
             bias2 = max(0, i - 1)
             bias = 1 + top_k ** 2 * bias2 + bias1
@@ -824,7 +808,7 @@ class Model(nn.Module):
         selected_tokens = None
 
         if self.method != "full":
-            if self.method == "ssm-guided" or self.method == "h2o":
+            if self.method == "ssm-guided" or self.method == "h2o" or self.method == "streamingssm":
                 # SSM-Guided Token Pruning
                 budget = self.token_budget//2
                 total_len = attentions.size(-1) - 51

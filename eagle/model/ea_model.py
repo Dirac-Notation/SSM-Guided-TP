@@ -79,7 +79,7 @@ class EaModel(nn.Module):
         self.token_budget = token_budget
         self.ea_layer.token_budget = token_budget
         self.forgetting_factor=forgetting_factor
-        self.ea_layer.revive_budget = token_budget//20 if reviving else 0
+        self.ea_layer.revive_budget = token_budget//5 if reviving else 0
     
     def get_tokenizer(self):
         """Get the tokenizer of the base model.
@@ -220,8 +220,6 @@ class EaModel(nn.Module):
             logits_processor = prepare_logits_processor(temperature=temperature, top_p=top_p, top_k=top_k)
         else:
             logits_processor = None
-        #assert input_ids.shape[0] == 1, "Only support batch size 1 for now!!"
-        # Avoid modifying the input_ids in-place
 
         padding=(torch.zeros(1,1,dtype=torch.long)-1).to(input_ids.device)
         input_ids = input_ids.clone()
@@ -275,10 +273,6 @@ class EaModel(nn.Module):
         ssm_latency = []
 
         with Timer("all") as timer_decoding:
-            # mask = torch.zeros((1, input_ids.size(-1)))
-            # mask.scatter_(1, selected_tokens.unsqueeze(0)[:,:-59].to("cpu"), 1)
-            # mask.scatter_(1, past_key_values[0][0].select_indices[:,0,:-59].to("cpu"), 1)
-
             for idx in range(max_length):
                 if ssm_indices is not None:
                     for past_key_value in past_key_values:
@@ -297,15 +291,13 @@ class EaModel(nn.Module):
                         input_ids,
                         retrieve_indices,
                     )
-                    #retrieve_indices=tree_buffers["retrieve_indices"]
-                    #logits = logits[0, retrieve_indices]
+
                     draft_tokens=torch.cat((draft_tokens,padding),dim=1)
                     candidates=draft_tokens[0, retrieve_indices]
                     best_candidate, accept_length, sample_p = evaluate_posterior(
                         logits, candidates, logits_processor
                     )
-                
-                # print(accept_length)
+
                 with Timer("update_inference_inputs") as timer_ssm:
                     input_ids, draft_tokens, retrieve_indices, tree_mask, tree_position_ids, new_token, hidden_state, sample_token, selected_tokens = update_inference_inputs(
                         input_ids,
@@ -322,11 +314,6 @@ class EaModel(nn.Module):
                         sample_p
                     )
                 
-                # tmp = torch.zeros((1, input_ids.size(-1)))
-                # tmp.scatter_(1, selected_tokens.unsqueeze(0)[:,:-59].to("cpu"), 1)
-                # # tmp.scatter_(1, past_key_values[0][0].select_indices[:,0,:-59].to("cpu"), 1)
-                # mask = torch.cat((F.pad(mask, (0, tmp.size(-1) - mask.size(-1))), tmp), dim=0)
-                
                 count_accept += accept_length
                 count_all += self.ea_layer.depth + 1
                 
@@ -341,12 +328,6 @@ class EaModel(nn.Module):
                     break
                 
                 if new_token > max_new_tokens:
-                    # import matplotlib.pyplot as plt
-                    # plt.imshow(mask, cmap="Blues", interpolation="nearest")
-                    # plt.xticks()
-                    # plt.yticks()
-                    # plt.savefig("tmp.png")
-                    # import pdb; pdb.set_trace()
                     break
                 if input_ids.shape[1] > max_length:
                     break
