@@ -32,11 +32,11 @@ class KVCache:
         self.data = data
         self.current_length = current_length
         
-        self.method = None # full / no_offloading / just_offloading / maintain_offloading / h2o
+        self.method = "full" # full / no_offloading / just_offloading / maintain_offloading / h2o
+        self.prefill = False
+        
         self.token_budget = None
         self.revive_budget = None
-        
-        self.prefill = False
         
         self.select_indices = None
         self.saved_indices = None

@@ -21,7 +21,7 @@ def args_budget(value):
 parser = argparse.ArgumentParser(description="EAGLE 모델 성능 측정")
 parser.add_argument("--ltm_path", type=str, help="LTM 모델", default="meta-llama/Llama-2-7b-chat-hf")
 parser.add_argument("--ssm_path", type=str, help="SSM 모델", default="yuhuili/EAGLE-llama2-chat-7B") # trained_model/two_layer / trained_model/no_feature
-parser.add_argument("--dataset", type=str, help="데이터셋", default="fewshot_data/cnn_dailymail-3shot.jsonl")
+parser.add_argument("--dataset", type=str, help="데이터셋", default="datasets/cnn_dailymail.jsonl")
 parser.add_argument("--method", type=str, help="토큰 가지치기 기법", default="full")
 parser.add_argument("--token_budget", type=args_budget, nargs="+", help="토큰 버짓", default=[None])
 parser.add_argument("--forgetting_factor", type=float, help="Forgetting Factor", default=1.0)
@@ -76,7 +76,7 @@ scorer = rouge_scorer.RougeScorer(rouge_types=rouge_types, use_stemmer=True)
 model = EaModel.from_pretrained(
     base_model_path=base_model_path,
     ea_model_path=EAGLE_model_path,
-    torch_dtype=torch.float16,
+    torch_dtype=torch.bfloat16,
     device_map=f"cuda:{gpu}",
 ).eval()
 
